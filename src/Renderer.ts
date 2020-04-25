@@ -2,6 +2,10 @@ import { Shader } from './Shader';
 import Line from './Line';
 import { mat4, glMatrix } from 'gl-matrix';
 
+/*
+вынесте логику формирования линий в GridRenderer, тут оставить только логику рендеринга сцены
+*/
+
 type Scene = {
     lines: [Line, mat4[]][];
 }
@@ -13,7 +17,7 @@ type Lines = {
     grid2Line: Line;
 }
 
-const defaultGridStep = 500;
+const initialGridStep = 500;
 
 class Renderer {
     private width: number;
@@ -24,11 +28,9 @@ class Renderer {
     private startPos = [0, 0];
     private gl: WebGLRenderingContext;
     private lines: Lines;
-    private gridStep = defaultGridStep;
 
-    private grids = [
-
-    ];
+    private gridStep = initialGridStep;
+    private zoom: number = Math.log(initialGridStep);
 
     constructor(
         gl: WebGLRenderingContext, canvas: HTMLCanvasElement, 
@@ -75,11 +77,8 @@ class Renderer {
     }
 
     private onWheel(event: WheelEvent) {
-        this.gridStep -= event.deltaY * 5;
-        if (this.gridStep > defaultGridStep * 10 || this.gridStep < defaultGridStep) {
-            this.gridStep = 500;
-        }
-        console.log(this.gridStep);
+        this.zoom -= event.deltaY * 0.025;
+        this.gridStep = Math.exp(this.zoom);
         this.render();
     }
 
@@ -93,16 +92,11 @@ class Renderer {
         if (!this.shader) return;
 
         const grid2Step = this.gridStep / 10;
+        const grid3Step = grid2Step / 10;
 
-        const grid1Models = [
-            this.getXModels(this.gridStep),
-            this.getYModels(this.gridStep),
-        ].flat();
-
-        const grid2Models = [
-            this.getXModels(grid2Step),
-            this.getYModels(grid2Step),
-        ].flat();
+        const grid1Lines: mat4[] = this.getGridLines(this.gridStep);
+        const grid2Lines: mat4[] = this.getGridLines(grid2Step);
+        const grid3Lines: mat4[] = this.getGridLines(grid3Step);
 
         const xAxisModel = mat4.create();
         const yAxisModel = mat4.create();
@@ -112,8 +106,8 @@ class Renderer {
 
         const scene: Scene = {
             lines: [
-                [this.lines.grid2Line, grid2Models],
-                [this.lines.grid1Line, grid1Models],
+                [this.lines.grid2Line, grid2Lines],
+                [this.lines.grid1Line, grid1Lines],
                 [this.lines.yAxisLine, [yAxisModel]],
                 [this.lines.xAxisLine, [xAxisModel]],
             ]
@@ -136,6 +130,30 @@ class Renderer {
         }
     }
 
+    private getGridLines(step: number) {
+        return step > 10 ? [
+            this.getXModels(step),
+            this.getYModels(step),
+        ].flat() : [];
+    }
+
+    private getXModels(step: number) {
+        return this.getGridLineModels(step, this.height, this.originOffset[1], offset => {
+            const model = mat4.create();
+            mat4.translate(model, model, [0, offset, 0]);
+            return model;
+        });
+    }
+
+    private getYModels(step: number) {
+        return this.getGridLineModels(step, this.width, this.originOffset[0], offset => {
+            const model = mat4.create();
+            mat4.translate(model, model, [offset, 0, 0]);
+            mat4.rotateZ(model, model, glMatrix.toRadian(90));
+            return model;
+        });
+    }
+
     private getGridLineModels(stepSize: number, dimLenght: number, originOffset: number, getModel: (offset: number) => mat4) {
         const models: mat4[] = []
         const step = stepSize / dimLenght;
@@ -155,23 +173,6 @@ class Renderer {
             i -= step;
         }
         return models;
-    }
-
-    private getXModels(step: number) {
-        return this.getGridLineModels(step, this.height, this.originOffset[1], offset => {
-            const model = mat4.create();
-            mat4.translate(model, model, [0, offset, 0]);
-            return model;
-        });
-    }
-
-    private getYModels(step: number) {
-        return this.getGridLineModels(step, this.width, this.originOffset[0], offset => {
-            const model = mat4.create();
-            mat4.translate(model, model, [offset, 0, 0]);
-            mat4.rotateZ(model, model, glMatrix.toRadian(90));
-            return model;
-        });
     }
 }
 
