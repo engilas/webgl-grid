@@ -7,17 +7,20 @@ const App = () => {
     const [renderer, setRenderer] = useState<Renderer>(null);
 
     useEffect(() => {
-        const canvas = canvasRef.current;
-        const gl = canvas.getContext("webgl");
-        if (gl === null) {
-            throw new Error("Unable to initialize WebGL. Your browser or machine may not support it.");
-        }
-        const renderer = new Renderer(gl, canvas, canvas.width, canvas.height);
-        window.onresize = function () {
-            setCanvasSize([window.innerWidth, window.innerHeight]);
-        }
-        renderer.init().then(() => renderer.render());
-        setRenderer(renderer);
+        (async () => {
+            const canvas = canvasRef.current;
+            const gl = canvas.getContext("webgl");
+            if (gl === null) {
+                throw new Error("Unable to initialize WebGL. Your browser or machine may not support it.");
+            }
+            const [fragShader, vertShader] = await Promise.all([fetchFile("shaders/app.vert"), fetchFile("shaders/app.frag")]);
+            const renderer = new Renderer(gl, canvas, canvas.width, canvas.height, fragShader, vertShader);
+            window.onresize = function () {
+                setCanvasSize([window.innerWidth, window.innerHeight]);
+            }
+            renderer.render();
+            setRenderer(renderer);
+        })();
     }, []);
 
     useEffect(() => {
@@ -31,6 +34,11 @@ const App = () => {
     return (
         <canvas ref={canvasRef} width={canvasSize[0]} height={canvasSize[1]} id="glCanvas"></canvas>
     )
+}
+
+const fetchFile = async (path: string) => {
+    const response = await fetch(path);
+    return await response.text()
 }
 
 export default App;

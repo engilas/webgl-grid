@@ -22,6 +22,7 @@ export default class Line {
         this.setupBuffer();
         this.shader.use();
         this.shader.setMat4("uModelViewMatrix", model);
+        this.shader.setVec3("uColor", this.color);
         const offset = 0;
         const vertexCount = 2;
         this.gl.drawArrays(this.gl.LINES, offset, vertexCount);
@@ -32,11 +33,8 @@ export default class Line {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
 
         const data = [
-            this.begin, //2, 0
-            this.color, //3, 2
-
+            this.begin,
             this.end,
-            this.color,
         ].flat();
 
         this.gl.bufferData(this.gl.ARRAY_BUFFER,
@@ -48,15 +46,10 @@ export default class Line {
 
     private setupBuffer() {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffer);
-        const floatSize = 4;
         const type = this.gl.FLOAT;
         const normalize = false;
-        const stride = floatSize * 5;
         const posLocation = this.shader.getAttribLocation('aPos');
-        const colorLocation = this.shader.getAttribLocation('aColor');
-        this.gl.vertexAttribPointer(posLocation, 2, type, normalize, stride, 0);
-        this.gl.vertexAttribPointer(colorLocation, 3, type, normalize, stride, floatSize * 2);
+        this.gl.vertexAttribPointer(posLocation, 2, type, normalize, 0, 0);
         this.gl.enableVertexAttribArray(posLocation);
-        this.gl.enableVertexAttribArray(colorLocation);
     }
 }

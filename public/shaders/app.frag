@@ -1,6 +1,5 @@
-varying mediump vec4 Position;
-varying lowp vec3 Color;
+uniform lowp vec3 uColor;
 
 void main() {
-    gl_FragColor = vec4(Color, 1.0);
+    gl_FragColor = vec4(uColor, 1.0);
 }

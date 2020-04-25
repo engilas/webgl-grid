@@ -22,8 +22,16 @@ export class Shader {
         this.gl.uniformMatrix4fv(this.getUniformLocation(name), false, mat);
     }
 
+    public setVec3(name: string, vec: number[]) {
+        this.gl.uniform3fv(this.getUniformLocation(name), vec);
+    }
+
     public getAttribLocation(name: string) {
-        return this.gl.getAttribLocation(this.programId, name);
+        const location = this.gl.getAttribLocation(this.programId, name);
+        if (location === -1) {
+            throw new Error("No attrib with name " + name);
+        }
+        return location;
     }
 
     private getUniformLocation(name: string) {

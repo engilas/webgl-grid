@@ -26,7 +26,15 @@ class Renderer {
     private lines: Lines;
     private gridStep = defaultGridStep;
 
-    constructor(gl: WebGLRenderingContext, canvas: HTMLCanvasElement, width: number, height: number) {
+    private grids = [
+
+    ];
+
+    constructor(
+        gl: WebGLRenderingContext, canvas: HTMLCanvasElement, 
+        width: number, height: number, 
+        vertShader: string, fragShader: string) {
+
         this.gl = gl;
         this.width = width;
         this.height = height;
@@ -34,7 +42,15 @@ class Renderer {
         canvas.addEventListener("mousedown", e => this.onMouseDown(e));
         canvas.addEventListener("mouseup", _ => this.onMouseUp());
         canvas.addEventListener("mousemove", e => this.onMouseMove(e));
-        canvas.addEventListener("wheel", e => this.onWheel(e))
+        canvas.addEventListener("wheel", e => this.onWheel(e));
+
+        this.shader = new Shader(this.gl, vertShader, fragShader);
+        this.lines = {
+            xAxisLine: new Line(this.gl, this.shader, [0.0, 1.0, 0.0]),
+            yAxisLine: new Line(this.gl, this.shader, [1.0, 0.0, 0.0]),
+            grid1Line: new Line(this.gl, this.shader, [0.5, 0.5, 0.5]),
+            grid2Line: new Line(this.gl, this.shader, [0.3, 0.3, 0.3]),
+        }
     }
 
     private onMouseDown(event: MouseEvent) {
@@ -66,17 +82,6 @@ class Renderer {
         console.log(this.gridStep);
         this.render();
     }
-
-    async init() {
-        const [fragShader, vertShader] = await Promise.all([fetchFile("shaders/app.frag"), fetchFile("shaders/app.vert")]);
-        this.shader = new Shader(this.gl, vertShader, fragShader);
-        this.lines = {
-            xAxisLine: new Line(this.gl, this.shader, [0.0, 1.0, 0.0]),
-            yAxisLine: new Line(this.gl, this.shader, [1.0, 0.0, 0.0]),
-            grid1Line: new Line(this.gl, this.shader, [0.5, 0.5, 0.5]),
-            grid2Line: new Line(this.gl, this.shader, [0.3, 0.3, 0.3]),
-        }
-    };
 
     resize(width: number, height: number) {
         this.width = width;
@@ -114,14 +119,28 @@ class Renderer {
             ]
         }
 
-        drawScene(this.gl, this.shader, scene);
+        this.drawScene(scene);
+    }
+
+    drawScene(scene: Scene) {
+        this.gl.clearColor(0.2, 0.2, 0.2, 1.0);
+        this.gl.clearDepth(1.0);
+        this.gl.enable(this.gl.DEPTH_TEST);
+        this.gl.depthFunc(this.gl.LEQUAL);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+    
+        for (const line of scene.lines) {
+            for (const model of line[1]) {
+                line[0].draw(model);
+            }
+        }
     }
 
     private getGridLineModels(stepSize: number, dimLenght: number, originOffset: number, getModel: (offset: number) => mat4) {
         const models: mat4[] = []
         const step = stepSize / dimLenght;
         if (step <= 0.001) {
-            throw new Error("fafa")
+            throw new Error("fafa");
         }
         // positive
         let i = step + originOffset;
@@ -153,25 +172,6 @@ class Renderer {
             mat4.rotateZ(model, model, glMatrix.toRadian(90));
             return model;
         });
-    }
-}
-
-const fetchFile = async (path: string) => {
-    const response = await fetch(path);
-    return await response.text()
-}
-
-function drawScene(gl: WebGLRenderingContext, shader: Shader, scene: Scene) {
-    gl.clearColor(0.2, 0.2, 0.2, 1.0);
-    gl.clearDepth(1.0);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LEQUAL);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    for (const line of scene.lines) {
-        for (const model of line[1]) {
-            line[0].draw(model);
-        }
     }
 }
 
