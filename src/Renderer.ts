@@ -16,21 +16,20 @@ type DrawLine = {
     model: mat4;
 }
 
-const initialGridStep = 250;
 const backgroundGrayscale = 0.2;
 
 class Renderer {
     private width: number;
     private height: number;
-    private originOffset = [0, 0];
+    private center = [0, 0];
     private shader: Shader | null = null;
     private isMouseDown = false;
     private startPos = [0, 0];
     private gl: WebGLRenderingContext;
     private line: Line;
+    private scale = 1.0;
 
-    private gridStep = initialGridStep;
-    private zoom: number = Math.log(initialGridStep);
+    private zoom: number = 0;
 
     constructor(
         gl: WebGLRenderingContext, canvas: HTMLCanvasElement,
@@ -53,8 +52,8 @@ class Renderer {
     private onMouseDown(event: MouseEvent) {
         this.isMouseDown = true;
         this.startPos = [
-            2 * event.clientX / this.width - 1 - this.originOffset[0],
-            this.originOffset[1] + 2 * event.clientY / this.height - 1
+            this.center[0] + event.clientX / this.scale,
+            this.center[1] - event.clientY / this.scale,
         ];
     }
 
@@ -64,16 +63,17 @@ class Renderer {
 
     private onMouseMove(event: MouseEvent) {
         if (!this.isMouseDown) return;
-        this.originOffset = [
-            this.getNdc(event.clientX, this.width) - this.startPos[0],
-            this.startPos[1] - this.getNdc(event.clientY, this.height)
+        this.center = [
+            this.startPos[0] - event.clientX / this.scale,
+            this.startPos[1] + event.clientY / this.scale
         ];
+        console.log(this.center);
         this.render();
     }
 
     private onWheel(event: WheelEvent) {
-        this.zoom -= Math.sign(event.deltaY) * 0.20;
-        this.gridStep = Math.exp(this.zoom);
+        this.zoom -= Math.sign(event.deltaY) * 0.15;
+        this.scale = Math.exp(this.zoom);
         this.render();
     }
 
@@ -86,27 +86,25 @@ class Renderer {
     render() {
         if (!this.shader) return;
 
-        const grid2Step = this.gridStep / 10;
-        const grid3Step = grid2Step / 10;
-
-        const grid1Lines = this.getGridLines(this.gridStep);
-        const grid2Lines = this.getGridLines(grid2Step);
-        const grid3Lines = this.getGridLines(grid3Step);
+        const levelscount = 7;
+        const gridSteps: number[] = [250 * 1000];
+        for (let i = 0; i < levelscount; i++) {
+            gridSteps.push(gridSteps[gridSteps.length - 1] / 10);
+        }
+        const gridLines: DrawLine[] = gridSteps.sort().map(x => this.getGridLines(x)).flat();
 
         const xAxisModel = mat4.create();
         const yAxisModel = mat4.create();
-        mat4.translate(xAxisModel, xAxisModel, [0, this.originOffset[1], 0]);
-        mat4.translate(yAxisModel, yAxisModel, [this.originOffset[0], 0, 0]);
+        mat4.translate(xAxisModel, xAxisModel, [0, getNdc(-this.center[1], this.height / this.scale) + 1, 0]);
+        mat4.translate(yAxisModel, yAxisModel, [getNdc(-this.center[0], this.width / this.scale) + 1, 0, 0]);
         mat4.rotateZ(yAxisModel, yAxisModel, glMatrix.toRadian(90));
 
-        const xLine = { line: this.line, color: [1, 0, 0], model: xAxisModel };
-        const yLine = { line: this.line, color: [0, 1, 0], model: yAxisModel };
+        const xLine = { line: this.line, color: [1, 0.3, 0.3], model: xAxisModel };
+        const yLine = { line: this.line, color: [0.3, 1, 0.3], model: yAxisModel };
 
         const scene: Scene = {
             lines: [
-                grid3Lines,
-                grid2Lines,
-                grid1Lines,
+                gridLines,
                 [xLine],
                 [yLine],
             ].flat()
@@ -129,7 +127,7 @@ class Renderer {
     }
 
     private getGridLines(step: number) {
-        if (step <= 5) return [];
+        if (step * this.scale <= 5) return [];
         const lineColor = this.getLineColor(step);
         const xLines: DrawLine[] = this.getXModels(step).map(model => {
             return { line: this.line, color: lineColor, model: model };
@@ -142,26 +140,23 @@ class Renderer {
 
     private getLineColor(step: number) {
         const minColor = backgroundGrayscale;
-        const maxColor = 0.35;
+        const maxColor = minColor + 0.15;
         const scale = maxColor - minColor;
         const offset = minColor;
-        const maxDim = Math.max(this.width, this.height) / 2;
-        const sigmoidOffset = 70;
+        const maxDim = Math.max(this.width, this.height) / 2 / this.scale;
+
         const sigmoidGrowthRate = 30;
-        const k = (1000 / sigmoidGrowthRate) / maxDim;
-        const x0 = maxDim / (1000 / sigmoidOffset);
+        const sigmoidOffset = 0.04;
         // sigmoid
-        //const x = 1.1 / (1 + Math.exp(-k*(step - x0))) - 0.1;
-        const x = Math.min(step / (maxDim / 7), 1);
+        const x = 1.3 / (1 + Math.exp(-sigmoidGrowthRate * (step / maxDim - sigmoidOffset))) - 0.3
 
-        const color = scale * x + offset;
-        console.log(`step: ${step}; color: ${color}`);
+        const color = scale * Math.min(Math.max(x, 0), 1) + offset;
 
-        return Array<number>(3).fill(color > backgroundGrayscale + 0.005 ? color : backgroundGrayscale);
+        return Array<number>(3).fill(color);
     }
 
     private getXModels(step: number) {
-        return this.getGridLineModels(step, this.height, this.originOffset[1], offset => {
+        return this.getGridLineModels(step, this.height, this.center[1], offset => {
             const model = mat4.create();
             mat4.translate(model, model, [0, offset, 0]);
             return model;
@@ -169,7 +164,7 @@ class Renderer {
     }
 
     private getYModels(step: number) {
-        return this.getGridLineModels(step, this.width, this.originOffset[0], offset => {
+        return this.getGridLineModels(step, this.width, this.center[0], offset => {
             const model = mat4.create();
             mat4.translate(model, model, [offset, 0, 0]);
             mat4.rotateZ(model, model, glMatrix.toRadian(90));
@@ -177,27 +172,22 @@ class Renderer {
         });
     }
 
-    private getGridLineModels(stepSize: number, dimLenght: number, originOffset: number, getModel: (offset: number) => mat4) {
-        const models: mat4[] = []
-        const step = stepSize / (dimLenght / 2);
-        // positive
-        let i = step + originOffset;
-        while (i <= 1) {
-            models.push(getModel(i));
-            i += step;
-        }
-        // negative
-        i = originOffset - step;
-        while (i >= -1) {
-            models.push(getModel(i));
-            i -= step;
+    private getGridLineModels(step: number, dimLenght: number, originOffset: number, getModel: (offset: number) => mat4) {
+        dimLenght /= this.scale;
+        const models: mat4[] = [];
+        const w0 = originOffset - dimLenght / 2;
+        const w1 = w0 + dimLenght;
+        let s = Math.floor(w0 / step) * step + step;
+        while (s < w1) {
+            models.push(getModel(getNdc(s - w0, dimLenght)));
+            s += step;
         }
         return models;
     }
+}
 
-    private getNdc(screenCoord: number, dimLenght: number) {
-        return 2 * screenCoord / dimLenght - 1;
-    }
+function getNdc(screenCoord: number, dimLenght: number) {
+    return 2 * screenCoord / dimLenght - 1;
 }
 
 export default Renderer;
