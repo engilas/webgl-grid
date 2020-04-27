@@ -7,17 +7,17 @@ import { mat4, glMatrix } from 'gl-matrix';
 */
 
 type Scene = {
-    lines: [Line, mat4[]][];
+    lines: DrawLine[];
 }
 
-type Lines = {
-    xAxisLine: Line;
-    yAxisLine: Line;
-    grid1Line: Line;
-    grid2Line: Line;
+type DrawLine = {
+    line: Line;
+    color: number[];
+    model: mat4;
 }
 
-const initialGridStep = 500;
+const initialGridStep = 250;
+const backgroundGrayscale = 0.2;
 
 class Renderer {
     private width: number;
@@ -27,14 +27,14 @@ class Renderer {
     private isMouseDown = false;
     private startPos = [0, 0];
     private gl: WebGLRenderingContext;
-    private lines: Lines;
+    private line: Line;
 
     private gridStep = initialGridStep;
     private zoom: number = Math.log(initialGridStep);
 
     constructor(
-        gl: WebGLRenderingContext, canvas: HTMLCanvasElement, 
-        width: number, height: number, 
+        gl: WebGLRenderingContext, canvas: HTMLCanvasElement,
+        width: number, height: number,
         vertShader: string, fragShader: string) {
 
         this.gl = gl;
@@ -47,12 +47,7 @@ class Renderer {
         canvas.addEventListener("wheel", e => this.onWheel(e));
 
         this.shader = new Shader(this.gl, vertShader, fragShader);
-        this.lines = {
-            xAxisLine: new Line(this.gl, this.shader, [0.0, 1.0, 0.0]),
-            yAxisLine: new Line(this.gl, this.shader, [1.0, 0.0, 0.0]),
-            grid1Line: new Line(this.gl, this.shader, [0.5, 0.5, 0.5]),
-            grid2Line: new Line(this.gl, this.shader, [0.3, 0.3, 0.3]),
-        }
+        this.line = new Line(this.gl, this.shader);
     }
 
     private onMouseDown(event: MouseEvent) {
@@ -70,14 +65,14 @@ class Renderer {
     private onMouseMove(event: MouseEvent) {
         if (!this.isMouseDown) return;
         this.originOffset = [
-            (2 * event.clientX / this.width - 1) - this.startPos[0],
-            this.startPos[1] - (2 * event.clientY / this.height - 1)
+            this.getNdc(event.clientX, this.width) - this.startPos[0],
+            this.startPos[1] - this.getNdc(event.clientY, this.height)
         ];
         this.render();
     }
 
     private onWheel(event: WheelEvent) {
-        this.zoom -= event.deltaY * 0.025;
+        this.zoom -= Math.sign(event.deltaY) * 0.20;
         this.gridStep = Math.exp(this.zoom);
         this.render();
     }
@@ -94,9 +89,9 @@ class Renderer {
         const grid2Step = this.gridStep / 10;
         const grid3Step = grid2Step / 10;
 
-        const grid1Lines: mat4[] = this.getGridLines(this.gridStep);
-        const grid2Lines: mat4[] = this.getGridLines(grid2Step);
-        const grid3Lines: mat4[] = this.getGridLines(grid3Step);
+        const grid1Lines = this.getGridLines(this.gridStep);
+        const grid2Lines = this.getGridLines(grid2Step);
+        const grid3Lines = this.getGridLines(grid3Step);
 
         const xAxisModel = mat4.create();
         const yAxisModel = mat4.create();
@@ -104,37 +99,65 @@ class Renderer {
         mat4.translate(yAxisModel, yAxisModel, [this.originOffset[0], 0, 0]);
         mat4.rotateZ(yAxisModel, yAxisModel, glMatrix.toRadian(90));
 
+        const xLine = { line: this.line, color: [1, 0, 0], model: xAxisModel };
+        const yLine = { line: this.line, color: [0, 1, 0], model: yAxisModel };
+
         const scene: Scene = {
             lines: [
-                [this.lines.grid2Line, grid2Lines],
-                [this.lines.grid1Line, grid1Lines],
-                [this.lines.yAxisLine, [yAxisModel]],
-                [this.lines.xAxisLine, [xAxisModel]],
-            ]
+                grid3Lines,
+                grid2Lines,
+                grid1Lines,
+                [xLine],
+                [yLine],
+            ].flat()
         }
 
         this.drawScene(scene);
     }
 
-    drawScene(scene: Scene) {
-        this.gl.clearColor(0.2, 0.2, 0.2, 1.0);
+    private drawScene(scene: Scene) {
+        this.gl.clearColor(backgroundGrayscale, backgroundGrayscale, backgroundGrayscale, 1);
         this.gl.clearDepth(1.0);
         this.gl.enable(this.gl.DEPTH_TEST);
         this.gl.depthFunc(this.gl.LEQUAL);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-    
-        for (const line of scene.lines) {
-            for (const model of line[1]) {
-                line[0].draw(model);
-            }
+
+        console.log(`draw ${scene.lines.length} lines`);
+        for (const { line, color, model } of scene.lines) {
+            line.draw(model, color);
         }
     }
 
     private getGridLines(step: number) {
-        return step > 10 ? [
-            this.getXModels(step),
-            this.getYModels(step),
-        ].flat() : [];
+        if (step <= 5) return [];
+        const lineColor = this.getLineColor(step);
+        const xLines: DrawLine[] = this.getXModels(step).map(model => {
+            return { line: this.line, color: lineColor, model: model };
+        });
+        const yLines: DrawLine[] = this.getYModels(step).map(model => {
+            return { line: this.line, color: lineColor, model: model };
+        });
+        return [xLines, yLines].flat();
+    }
+
+    private getLineColor(step: number) {
+        const minColor = backgroundGrayscale;
+        const maxColor = 0.35;
+        const scale = maxColor - minColor;
+        const offset = minColor;
+        const maxDim = Math.max(this.width, this.height) / 2;
+        const sigmoidOffset = 70;
+        const sigmoidGrowthRate = 30;
+        const k = (1000 / sigmoidGrowthRate) / maxDim;
+        const x0 = maxDim / (1000 / sigmoidOffset);
+        // sigmoid
+        //const x = 1.1 / (1 + Math.exp(-k*(step - x0))) - 0.1;
+        const x = Math.min(step / (maxDim / 7), 1);
+
+        const color = scale * x + offset;
+        console.log(`step: ${step}; color: ${color}`);
+
+        return Array<number>(3).fill(color > backgroundGrayscale + 0.005 ? color : backgroundGrayscale);
     }
 
     private getXModels(step: number) {
@@ -156,10 +179,7 @@ class Renderer {
 
     private getGridLineModels(stepSize: number, dimLenght: number, originOffset: number, getModel: (offset: number) => mat4) {
         const models: mat4[] = []
-        const step = stepSize / dimLenght;
-        if (step <= 0.001) {
-            throw new Error("fafa");
-        }
+        const step = stepSize / (dimLenght / 2);
         // positive
         let i = step + originOffset;
         while (i <= 1) {
@@ -173,6 +193,10 @@ class Renderer {
             i -= step;
         }
         return models;
+    }
+
+    private getNdc(screenCoord: number, dimLenght: number) {
+        return 2 * screenCoord / dimLenght - 1;
     }
 }
 

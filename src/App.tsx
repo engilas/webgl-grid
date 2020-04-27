@@ -29,7 +29,7 @@ const App = () => {
         }
         renderer.resize(canvasSize[0], canvasSize[1]);
         renderer.render();
-    }, [canvasSize]);
+    }, [renderer, canvasSize]);
 
     return (
         <canvas ref={canvasRef} width={canvasSize[0]} height={canvasSize[1]} id="glCanvas"></canvas>
