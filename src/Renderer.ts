@@ -2,14 +2,6 @@ import { Shader } from './Shader';
 import Line from './Line';
 import { mat4, glMatrix } from 'gl-matrix';
 
-/*
-вынесте логику формирования линий в GridRenderer, тут оставить только логику рендеринга сцены
-*/
-
-type Scene = {
-    lines: DrawLine[];
-}
-
 type DrawLine = {
     line: Line;
     color: number[];
@@ -40,39 +32,41 @@ class Renderer {
         this.width = width;
         this.height = height;
 
-        canvas.addEventListener("mousedown", e => this.onMouseDown(e));
-        canvas.addEventListener("mouseup", _ => this.onMouseUp());
-        canvas.addEventListener("mousemove", e => this.onMouseMove(e));
+        canvas.addEventListener("mousedown", e => this.startMoving(e.clientX, e.clientY));
+        canvas.addEventListener("mouseup", _ => this.stopMoving());
+        canvas.addEventListener("mousemove", e => this.move(e.clientX, e.clientY));
         canvas.addEventListener("wheel", e => this.onWheel(e));
+        canvas.addEventListener("touchstart", e => this.startMoving(e.touches[0].clientX, e.touches[0].clientY))
+        canvas.addEventListener("touchend", e => this.stopMoving())
+        canvas.addEventListener("touchmove", e => this.move(e.touches[0].clientX, e.touches[0].clientY))
 
         this.shader = new Shader(this.gl, vertShader, fragShader);
         this.line = new Line(this.gl, this.shader);
     }
 
-    private onMouseDown(event: MouseEvent) {
+    private startMoving(x: number, y: number) {
         this.isMouseDown = true;
         this.startPos = [
-            this.center[0] + event.clientX / this.scale,
-            this.center[1] - event.clientY / this.scale,
+            this.center[0] + x / this.scale,
+            this.center[1] - y / this.scale,
         ];
     }
 
-    private onMouseUp() {
+    private stopMoving() {
         this.isMouseDown = false;
     }
 
-    private onMouseMove(event: MouseEvent) {
+    private move(x: number, y: number) {
         if (!this.isMouseDown) return;
         this.center = [
-            this.startPos[0] - event.clientX / this.scale,
-            this.startPos[1] + event.clientY / this.scale
+            this.startPos[0] - x / this.scale,
+            this.startPos[1] + y / this.scale
         ];
-        console.log(this.center);
         this.render();
     }
 
     private onWheel(event: WheelEvent) {
-        this.zoom -= Math.sign(event.deltaY) * 0.15;
+        this.zoom = clamp(this.zoom - Math.sign(event.deltaY) * 0.15, -9, 10.05);
         this.scale = Math.exp(this.zoom);
         this.render();
     }
@@ -102,26 +96,23 @@ class Renderer {
         const xLine = { line: this.line, color: [1, 0.3, 0.3], model: xAxisModel };
         const yLine = { line: this.line, color: [0.3, 1, 0.3], model: yAxisModel };
 
-        const scene: Scene = {
-            lines: [
-                gridLines,
-                [xLine],
-                [yLine],
-            ].flat()
-        }
+        const lines = [
+            gridLines,
+            [xLine],
+            [yLine],
+        ].flat();
 
-        this.drawScene(scene);
+        this.drawScene(lines);
     }
 
-    private drawScene(scene: Scene) {
+    private drawScene(lines: DrawLine[]) {
         this.gl.clearColor(backgroundGrayscale, backgroundGrayscale, backgroundGrayscale, 1);
         this.gl.clearDepth(1.0);
         this.gl.enable(this.gl.DEPTH_TEST);
         this.gl.depthFunc(this.gl.LEQUAL);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
-        console.log(`draw ${scene.lines.length} lines`);
-        for (const { line, color, model } of scene.lines) {
+        for (const { line, color, model } of lines) {
             line.draw(model, color);
         }
     }
@@ -144,13 +135,9 @@ class Renderer {
         const scale = maxColor - minColor;
         const offset = minColor;
         const maxDim = Math.max(this.width, this.height) / 2 / this.scale;
+        const x = Math.min(step / (5 * maxDim) + 0.8, 4 * step / maxDim);
 
-        const sigmoidGrowthRate = 30;
-        const sigmoidOffset = 0.04;
-        // sigmoid
-        const x = 1.3 / (1 + Math.exp(-sigmoidGrowthRate * (step / maxDim - sigmoidOffset))) - 0.3
-
-        const color = scale * Math.min(Math.max(x, 0), 1) + offset;
+        const color = scale * clamp(x, 0, 1) + offset;
 
         return Array<number>(3).fill(color);
     }
@@ -188,6 +175,10 @@ class Renderer {
 
 function getNdc(screenCoord: number, dimLenght: number) {
     return 2 * screenCoord / dimLenght - 1;
+}
+
+function clamp(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), max);
 }
 
 export default Renderer;
